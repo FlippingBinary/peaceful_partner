@@ -28,8 +28,6 @@ class ChatDetailPage extends StatefulWidget {
 
 class _ChatDetailPageState extends State<ChatDetailPage> {
   final DataService _data = DataService();
-  static const String _openaiApiKey =
-      "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";
   List<ChatMessage> _messages = [];
   String? _alertMessage;
   String? _suggestedText;
@@ -189,7 +187,7 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
         await http.post(Uri.parse('https://api.openai.com/v1/chat/completions'),
             headers: {
               'Content-Type': 'application/json',
-              'Authorization': 'Bearer $_openaiApiKey',
+              'Authorization': 'Bearer $openaiKey',
             },
             body: json.encode({
               'model': 'gpt-3.5-turbo',
