@@ -61,8 +61,6 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
   bool _isOnline = true;
   bool _isVisual = false;
   Timer? _timer;
-  final List<num> _arousalWindow = [];
-  final List<num> _valenceWindow = [];
   final ScrollController _scrollController = ScrollController();
   final ScrollController _textScrollController = ScrollController();
   final TextEditingController _messageController = TextEditingController();
@@ -121,16 +119,14 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
         'ArousalValence',
         onMessageReceived: (JavaScriptMessage message) {
           final Map<String, dynamic> data = json.decode(message.message);
-          if (data["valence"] < 0) {
-            // Inside data["affects38"] is an object with 38 keys. We need a list of the keys that have a value greater than 0.8
-            // and the keys are one of the following: Afraid, Anxious, Depressed, Distressed, Enraged, Frustrated, Melancholic, Sad
-            final List<String> intenseAffects = data["affects38"]
-                .keys
-                .where((key) =>
-                    data["affects38"][key] > 0.9 &&
-                    (key == "Distressed" || key == "Enraged"))
-                .toList();
-            if (intenseAffects.isNotEmpty) {
+          if (data["valence"] < -0.7) {
+            // // Inside data["affects38"] is an object with 38 keys. We need a list of the keys that have a value greater than 0.8
+            // // and the keys are one of the following: Afraid, Anxious, Depressed, Distressed, Enraged, Frustrated, Melancholic, Sad
+            // final List<String> intenseAffects = data["affects38"]
+            //     .keys
+            //     .where((key) => data["affects38"][key] > 0.9)
+            //     .toList();
+            // if (intenseAffects.isNotEmpty) {
               setState(() {
                 _timer?.cancel();
                 _timer = Timer(const Duration(seconds: 10), () {
@@ -148,7 +144,7 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
                   curve: Curves.easeInOut,
                 );
               });
-            }
+            // }
           }
         },
       );
@@ -210,11 +206,12 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
 
   Future<void> _fetchChatMessages() async {
     final DataService data = DataService();
-    List<ChatMessage> updatedMessages = await data.messages(1, widget.them.id);
+    List<ChatMessage> updatedMessages =
+        await data.messages(widget.me.id, widget.them.id);
     ChatPerson? updatedPerson = await data.person(widget.them.id);
     setState(() {
       _messages = updatedMessages;
-      _isOnline = updatedPerson != null && updatedPerson.isOnline;
+      _isOnline = updatedPerson?.isOnline ?? false;
     });
   }
 
@@ -227,7 +224,8 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
               'Authorization': 'Bearer $openaiKey',
             },
             body: json.encode({
-              'model': 'gpt-3.5-turbo',
+              'model': 'gpt-3.5-turbo-1106',
+              'response_format': {'type': "json_object"},
               'messages': [
                 {'role': 'system', 'content': system},
                 {'role': 'user', 'content': query}
@@ -238,27 +236,48 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
               'frequency_penalty': 0,
               'presence_penalty': 0,
             }));
-    if (response.statusCode == 200) {
-      return json.decode(response.body)['choices'][0]['message']['content'];
-    } else {
-      print("Failed to load GPT3 response");
-      print(response.body);
+    if (response.statusCode != 200) {
+      var body = response.body;
+      print("Failed to load GPT3 response: $body");
       throw Exception('Failed to load GPT3 response');
     }
+    var gptResponse = json.decode(response.body)['choices'][0];
+    // Check to make sure the finish_reason is not "length", which means the message was too long
+    if (gptResponse['finish_reason'] == 'length') {
+      print("GPT3 response was too long: $gptResponse");
+      return json.encode({
+        'command': 'reject',
+        'advice':
+            'GPT response to your message was too long. Please try again.',
+        'revision': query,
+      });
+    }
+    return gptResponse['message']['content'];
   }
 
   Map<String, String>? _parseCensorResponse(String response) {
-    if (response.startsWith('<APPROVE>')) {
+    // The response contains a JSON object with the following keys:
+    // - command: a string containing either "accept" or "reject"
+    // - advice: a string containing the advice to give the user
+    // - revision: a string containing the revised message to send to the user
+    // Parse the response and return the advice and revision if the command is "reject"
+    var responseJson = json.decode(response);
+    if (responseJson['command'] == 'accept') {
+      // We just ignore the model's advice if it says to accept the message
       return null;
-    } else if (response.startsWith('<REJECT>')) {
-      var parts = response.split('<REVISION>');
-      var advice = parts[0].substring('<REJECT>'.length).trim();
-      var revision = parts.length > 1 ? parts[1].trim() : "";
-      return {'advice': advice, 'revision': revision};
+    } else if (responseJson['command'] == 'reject') {
+      return {
+        'advice': responseJson['advice'],
+        'revision': responseJson['revision']
+      };
     } else {
       print(
-          "Failed to parse censor response because it didn't start with APPROVE or REJECT");
-      return null;
+          "Failed to parse censor response because it didn't contain a valid command: $response");
+      return {
+        'advice':
+            "Failed to parse GPT response because it didn't contain a valid command: $response",
+        'revision': ""
+      };
     }
   }
 
@@ -272,6 +291,7 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
               elevation: 0,
               automaticallyImplyLeading: false,
               backgroundColor: Colors.white,
+              toolbarHeight: 75,
               flexibleSpace: SafeArea(
                 child: Container(
                   padding: const EdgeInsets.only(right: 16),
@@ -289,9 +309,13 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
                       const SizedBox(
                         width: 2,
                       ),
-                      CircleAvatar(
-                        backgroundImage: NetworkImage(widget.them.imageURL),
-                        maxRadius: 20,
+                      Opacity(
+                        opacity: _isOnline ? 1.0 : 0.5,
+                        child: CircleAvatar(
+                          backgroundImage:
+                              NetworkImage(widget.them.imageURL),
+                          maxRadius: 20,
+                        ),
                       ),
                       const SizedBox(
                         width: 12,
@@ -302,9 +326,10 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: <Widget>[
                             Text(
-                              widget.them.username,
+                              widget.them.displayName,
                               style: const TextStyle(
-                                  fontSize: 16, fontWeight: FontWeight.w600),
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600),
                             ),
                             const SizedBox(
                               height: 6,
@@ -312,7 +337,8 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
                             Text(
                               _isOnline ? "Online" : "Offline",
                               style: TextStyle(
-                                  color: Colors.grey.shade600, fontSize: 13),
+                                  color: Colors.grey.shade600,
+                                  fontSize: 13),
                             ),
                           ],
                         ),
@@ -354,8 +380,17 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
                           physics: const NeverScrollableScrollPhysics(),
                           itemBuilder: (context, index) {
                             return Container(
-                              padding: const EdgeInsets.only(
-                                  left: 14, right: 14, top: 10, bottom: 10),
+                              padding: EdgeInsets.only(
+                                  left: (_messages[index].receiverId ==
+                                          widget.me.id
+                                      ? 14
+                                      : 28),
+                                  right: (_messages[index].receiverId !=
+                                          widget.me.id
+                                      ? 14
+                                      : 28),
+                                  top: 10,
+                                  bottom: 10),
                               child: Align(
                                 alignment:
                                     (_messages[index].receiverId == widget.me.id
@@ -593,8 +628,8 @@ class _ChatDetailPageState extends State<ChatDetailPage> {
                             setState(() {
                               _isWorking = false;
                             });
-                            print('GPT3: $rawResponse');
-                            var response = _parseCensorResponse(rawResponse);
+                            var response =
+                                _parseCensorResponse(rawResponse.trim());
                             if (response == null) {
                               // The message was approved, so we can send it.
                               if (_scaffoldKey.currentContext != null) {

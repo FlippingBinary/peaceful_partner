@@ -1,14 +1,17 @@
 import 'package:flutter/material.dart';
+import 'package:peaceful_partner/models/chat_messages.dart';
 import 'package:peaceful_partner/models/chat_people.dart';
 import 'package:peaceful_partner/screens/chat_detail_page.dart';
 
 class ConversationList extends StatefulWidget {
   final ChatPerson me;
   final ChatPerson them;
+  final ChatMessage? lastMessage;
   const ConversationList({
     super.key,
     required this.me,
     required this.them,
+    this.lastMessage,
   });
   @override
   State<ConversationList> createState() => _ConversationListState();
@@ -22,7 +25,8 @@ class _ConversationListState extends State<ConversationList> {
         Navigator.push(
             context,
             MaterialPageRoute(
-                builder: (_) => ChatDetailPage(me: widget.me, them: widget.them)));
+                builder: (_) =>
+                    ChatDetailPage(me: widget.me, them: widget.them)));
       },
       child: Container(
         padding:
@@ -32,9 +36,12 @@ class _ConversationListState extends State<ConversationList> {
             Expanded(
               child: Row(
                 children: <Widget>[
-                  CircleAvatar(
-                    backgroundImage: NetworkImage(widget.them.imageURL),
-                    maxRadius: 30,
+                  Opacity(
+                    opacity: widget.them.isOnline ? 1.0 : 0.5,
+                    child: CircleAvatar(
+                      backgroundImage: NetworkImage(widget.them.imageURL),
+                      maxRadius: 30,
+                    ),
                   ),
                   const SizedBox(
                     width: 16,
@@ -46,20 +53,19 @@ class _ConversationListState extends State<ConversationList> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: <Widget>[
                           Text(
-                            widget.them.username,
+                            widget.them.displayName,
                             style: const TextStyle(fontSize: 16),
                           ),
                           const SizedBox(
                             height: 6,
                           ),
                           Text(
-                            "Hello, How are you?",
+                            widget.lastMessage?.content ??
+                                "Start a conversation",
                             style: TextStyle(
-                                fontSize: 13,
-                                color: Colors.grey.shade600,
-                                fontWeight: widget.them.id % 2 == 0
-                                    ? FontWeight.bold
-                                    : FontWeight.normal),
+                              fontSize: 13,
+                              color: Colors.grey.shade600,
+                            ),
                           ),
                         ],
                       ),
@@ -68,13 +74,11 @@ class _ConversationListState extends State<ConversationList> {
                 ],
               ),
             ),
-            Text(
+            const Text(
               "Now",
               style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: widget.them.id % 2 == 0
-                      ? FontWeight.bold
-                      : FontWeight.normal),
+                fontSize: 12,
+              ),
             ),
           ],
         ),
